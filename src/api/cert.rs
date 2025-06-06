@@ -5,7 +5,7 @@ use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router, debug_handler};
 use entity::cert::{ActiveModel, Entity, Model as Cert};
-use sea_orm::prelude::DateTime;
+use sea_orm::prelude::DateTimeUtc;
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -20,8 +20,8 @@ pub(crate) fn router() -> Router<Arc<ApiContext>> {
 struct TlsInfo {
     name: String,
     alias: Vec<String>,
-    valid_from: DateTime,
-    valid_to: DateTime,
+    valid_from: DateTimeUtc,
+    valid_to: DateTimeUtc,
 }
 
 impl From<Cert> for TlsInfo {

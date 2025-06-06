@@ -9,8 +9,8 @@ pub struct Model {
     pub id: i32,
     pub name: String,
     pub alias: String,
-    pub valid_from: DateTime,
-    pub valid_to: DateTime,
+    pub valid_from: DateTimeUtc,
+    pub valid_to: DateTimeUtc,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
