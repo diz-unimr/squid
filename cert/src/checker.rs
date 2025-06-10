@@ -1,0 +1,102 @@
+use chrono::{DateTime, FixedOffset, ParseResult};
+use entity::cert::Model as Cert;
+use hostfile::parse_file;
+use once_cell::sync::Lazy;
+use openssl::asn1::Asn1TimeRef;
+use openssl::ssl::{SslConnector, SslMethod};
+use regex::Regex;
+use std::error::Error;
+use std::net::TcpStream;
+use std::path::Path;
+use url::Url;
+
+fn check_certs() {
+    let hosts = parse_hosts("./../hosts".to_owned());
+    if let Ok(hostnames) = hosts {
+        let certs: Vec<Cert> = hostnames
+            .iter()
+            .filter_map(|h| collect_certs(h).ok())
+            .collect();
+        println!("{:?}", certs);
+    }
+
+    // save(tls_info)
+}
+
+fn collect_certs(host: &str) -> Result<Cert, Box<dyn Error>> {
+    let parsed = Url::parse(format!("https://{}", host).as_str())?;
+    let port = parsed.port_or_known_default().ok_or("No port")?;
+    let tcp = TcpStream::connect(format!("{}:{}", host, port))?;
+
+    let connector = SslConnector::builder(SslMethod::tls())?.build();
+    let stream = connector.connect(host, tcp)?;
+    let cert = stream.ssl().peer_certificate().ok_or("No certificate")?;
+
+    Ok(Cert {
+        name: host.to_string(),
+        // todo remove
+        alias: "".to_string(),
+        valid_from: to_datetime(cert.not_before())?.to_utc(),
+        valid_to: to_datetime(cert.not_after())?.to_utc(),
+        ..Default::default()
+    })
+}
+
+fn to_datetime(asn1: &Asn1TimeRef) -> ParseResult<DateTime<FixedOffset>> {
+    static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(GMT)$").unwrap());
+    // replace trailing GMT with UTC offset
+    let test = RE.replace(asn1.to_string().as_str(), "+0000").to_string();
+
+    DateTime::parse_from_str(test.as_str(), "%b %d %H:%M:%S %Y %z")
+}
+
+fn parse_hosts(file_path: String) -> Result<Vec<String>, String> {
+    let path = Path::new(&file_path);
+    let hosts = parse_file(path)?;
+
+    hosts
+        .clone()
+        .iter()
+        .for_each(|host| println!("{}", host.names[0]));
+
+    Ok(hosts.iter().map(|host| host.names[0].to_owned()).collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{NaiveDate, TimeZone};
+    use openssl::asn1::Asn1Time;
+
+    #[test]
+    fn test_parse_hosts() {
+        assert_eq!(parse_hosts("./../hosts".to_owned()).unwrap().len(), 90);
+    }
+
+    #[test]
+    fn test_check_certs() {
+        check_certs();
+
+        assert_eq!(true, true);
+    }
+
+    #[test]
+    fn test_parse_date() {
+        let date_str = "20251219235959Z";
+        let date = Asn1Time::from_str(date_str).unwrap();
+        let dt = to_datetime(date.as_ref());
+
+        assert_eq!(
+            dt,
+            Ok(FixedOffset::east_opt(0)
+                .unwrap()
+                .from_local_datetime(
+                    &NaiveDate::from_ymd_opt(2025, 12, 19)
+                        .unwrap()
+                        .and_hms_opt(23, 59, 59)
+                        .unwrap()
+                )
+                .unwrap())
+        );
+    }
+}
