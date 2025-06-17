@@ -8,7 +8,10 @@ async fn main() -> anyhow::Result<()> {
     // config
     let config = AppConfig::new().expect("Failed to load config");
 
-    // run
+    // start ssl checker
+    tokio::spawn(cert::checker::run());
+
+    // run server
     api::server::serve(config).await?;
 
     Ok(())

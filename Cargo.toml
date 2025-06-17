@@ -9,6 +9,7 @@ members = [".", "cert", "entity", "migration"]
 [dependencies]
 entity = { path = "entity" }
 migration = { path = "migration" }
+cert = { path = "cert" }
 
 tokio = { version = "1.0", features = ["full"] }
 tower = "0.5.2"
