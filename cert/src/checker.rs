@@ -1,68 +1,94 @@
-use chrono::{DateTime, FixedOffset, ParseResult};
-use entity::cert::{ActiveModel as CertModel, ActiveModel, Model as Cert, Model};
+use chrono::{DateTime, FixedOffset, ParseResult, Utc};
+use entity::cert::{ActiveModel as Cert, ActiveModel, Entity};
 use hostfile::parse_file;
 use once_cell::sync::Lazy;
 use openssl::asn1::Asn1TimeRef;
 use openssl::ssl::{SslConnector, SslMethod};
 use regex::Regex;
-use sea_orm::{ActiveModelTrait, ConnectOptions};
-use sea_orm::{Database, IntoActiveModel};
+use sea_orm::{ConnectOptions, EntityTrait, NotSet, Set};
+use sea_orm::{Database, sea_query};
 use std::error::Error;
 use std::net::TcpStream;
 use std::path::Path;
 use tokio::time::{Duration, interval};
 use url::Url;
 
-pub async fn run() {
-    let mut interval = interval(Duration::from_secs(60));
-    loop {
-        interval.tick().await;
-        update_cert_info().await;
-        println!("Updated cert info");
-    }
+#[derive(Clone)]
+pub struct Checker {
+    interval: Duration,
+    connection: ConnectOptions,
 }
 
-async fn update_cert_info() {
-    let hosts = parse_hosts("./../hosts".to_owned());
-    if let Ok(hostnames) = hosts {
-        let tasks: Vec<_> = hostnames
-            .into_iter()
-            .map(|h| tokio::spawn(collect_certs(h)))
-            .collect();
-
-        let certs: Vec<Cert> = futures::future::join_all(tasks)
-            .await
-            .into_iter()
-            .filter_map(|t| t.unwrap().ok())
-            .collect();
-
-        println!("{:?}", certs);
-
-        save(certs).await;
+impl Checker {
+    pub fn new() -> Checker {
+        let mut db_opts = ConnectOptions::new("sqlite://db.sqlite?mode=rwc");
+        db_opts
+            .max_connections(100)
+            .min_connections(5)
+            .connect_timeout(Duration::from_secs(8))
+            .acquire_timeout(Duration::from_secs(8))
+            .idle_timeout(Duration::from_secs(8))
+            .max_lifetime(Duration::from_secs(8))
+            .sqlx_logging(true);
+        // .sqlx_logging_level(log::LevelFilter::Info);
+        Checker {
+            interval: Duration::from_secs(30),
+            connection: db_opts,
+        }
     }
-}
 
-async fn save(certs: Vec<Cert>) {
-    // todo move to struct
-    let mut db_opts = ConnectOptions::new("sqlite://db.sqlite?mode=rwc");
-    db_opts
-        .max_connections(100)
-        .min_connections(5)
-        .connect_timeout(Duration::from_secs(8))
-        .acquire_timeout(Duration::from_secs(8))
-        .idle_timeout(Duration::from_secs(8))
-        .max_lifetime(Duration::from_secs(8))
-        .sqlx_logging(true);
-    // .sqlx_logging_level(log::LevelFilter::Info);
+    pub async fn run(&self) {
+        let mut interval = interval(self.interval);
+        loop {
+            interval.tick().await;
+            self.update_cert_info().await;
+            println!("Updated cert info");
+        }
+    }
 
-    let db = Database::connect(db_opts).await.unwrap();
-    let tasks = certs
-        .into_iter()
-        .map(|c: Model| c.into_active_model().insert(&db))
-        .collect::<Vec<_>>();
+    async fn update_cert_info(&self) {
+        let hosts = parse_hosts("./hosts".to_owned());
+        match hosts {
+            Ok(names) => {
+                let tasks: Vec<_> = names
+                    .into_iter()
+                    .map(|h| tokio::spawn(collect_certs(h)))
+                    .collect();
 
-    for task in tasks {
-        task.await.unwrap();
+                let certs: Vec<Cert> = futures::future::join_all(tasks)
+                    .await
+                    .into_iter()
+                    .filter_map(|t| t.unwrap().ok())
+                    .collect();
+
+                // println!("Certs: {:?}", certs);
+
+                self.save(certs).await;
+            }
+            Err(e) => {
+                println!("{}", e)
+            }
+        }
+    }
+
+    async fn save(&self, certs: Vec<Cert>) {
+        let db = Database::connect(self.connection.clone()).await.unwrap();
+        let tasks = certs.into_iter().map(|c: ActiveModel| {
+            Entity::insert(c)
+                .on_conflict(
+                    sea_query::OnConflict::column(entity::cert::Column::Name)
+                        .update_columns([
+                            entity::cert::Column::ValidFrom,
+                            entity::cert::Column::ValidTo,
+                        ])
+                        .to_owned(),
+                )
+                .exec_without_returning(&db)
+        });
+
+        for task in tasks {
+            task.await.unwrap();
+        }
     }
 }
 
@@ -76,12 +102,11 @@ async fn collect_certs(host: String) -> Result<Cert, Box<dyn Error + Send + Sync
     let cert = stream.ssl().peer_certificate().ok_or("No certificate")?;
 
     Ok(Cert {
-        name: host,
-        // todo remove
-        alias: "".to_string(),
-        valid_from: to_datetime(cert.not_before())?.to_utc(),
-        valid_to: to_datetime(cert.not_after())?.to_utc(),
-        ..Default::default()
+        id: NotSet,
+        name: Set(host),
+        valid_from: Set(to_datetime(cert.not_before())?.to_utc()),
+        valid_to: Set(to_datetime(cert.not_after())?.to_utc()),
+        updated: Set(Utc::now()),
     })
 }
 
@@ -111,9 +136,9 @@ mod tests {
         assert_eq!(parse_hosts("./../hosts".to_owned()).unwrap().len(), 90);
     }
 
-    #[test]
-    fn test_check_certs() {
-        update_cert_info();
+    #[tokio::test]
+    async fn test_check_certs() {
+        Checker::new().update_cert_info().await;
 
         assert_eq!(true, true);
     }

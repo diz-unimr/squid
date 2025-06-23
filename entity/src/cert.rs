@@ -5,12 +5,13 @@ use serde_derive::{Deserialize, Serialize};
 #[sea_orm(table_name = "certs")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    #[serde(skip_deserializing)]
+    #[serde(skip_serializing)]
     pub id: i32,
+    #[sea_orm(unique, index)]
     pub name: String,
-    pub alias: String,
     pub valid_from: DateTimeUtc,
     pub valid_to: DateTimeUtc,
+    pub updated: DateTimeUtc,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

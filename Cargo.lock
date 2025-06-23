@@ -3018,6 +3018,7 @@ dependencies = [
  "cert",
  "config",
  "entity",
+ "futures",
  "log",
  "migration",
  "sea-orm",
