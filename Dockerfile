@@ -1,12 +1,15 @@
-FROM 1.87.0-alpine3.22 AS build
+FROM rust:1.87.0-alpine3.22 AS build
 
 RUN set -ex && \
     apk add --no-progress --no-cache \
-        musl-dev
+        openssl-dev musl-dev openssl-libs-static
 
 WORKDIR /app
 COPY Cargo.toml Cargo.lock /app/
 COPY ./src /app/src
+COPY ./entity /app/entity
+COPY ./migration /app/migration
+COPY ./cert /app/cert
 RUN cargo build --release
 
 FROM alpine:3.22 AS run
