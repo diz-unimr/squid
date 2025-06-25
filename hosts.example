@@ -1,0 +1,4 @@
+127.0.0.1    foo.diz.uni-marburg.de            foo               ## Foo service
+
+# example comment
+0.0.0.0      bar.diz.uni-marburg.de            bar               ## Bar service

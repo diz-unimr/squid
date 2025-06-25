@@ -47,7 +47,7 @@ impl Checker {
     }
 
     async fn update_cert_info(&self) {
-        let hosts = parse_hosts("./hosts".to_owned());
+        let hosts = parse_hosts("./hosts.example".to_owned());
         match hosts {
             Ok(names) => {
                 let tasks: Vec<_> = names
@@ -60,8 +60,6 @@ impl Checker {
                     .into_iter()
                     .filter_map(|t| t.unwrap().ok())
                     .collect();
-
-                // println!("Certs: {:?}", certs);
 
                 self.save(certs).await;
             }
@@ -133,7 +131,10 @@ mod tests {
 
     #[test]
     fn test_parse_hosts() {
-        assert_eq!(parse_hosts("./../hosts".to_owned()).unwrap().len(), 90);
+        assert_eq!(
+            parse_hosts("./../hosts.example".to_owned()).unwrap().len(),
+            2
+        );
     }
 
     #[tokio::test]
